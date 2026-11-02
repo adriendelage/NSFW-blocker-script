@@ -1,9 +1,12 @@
 // ==UserScript==
 // @name         NSFW Shield
 // @namespace    https://github.com/adriendelage
-// @version      1.0.0
-// @description  Bloque les sites et recherches pornographiques / NSFW, force le SafeSearch des moteurs de recherche
+// @version      1.2.0
+// @description  Bloque les sites et recherches pornographiques / NSFW et les réseaux sociaux, force le SafeSearch
 // @author       Adrien
+// @homepageURL  https://github.com/adriendelage/NSFW-blocker-script
+// @updateURL    https://raw.githubusercontent.com/adriendelage/NSFW-blocker-script/main/nsfw-shield.user.js
+// @downloadURL  https://raw.githubusercontent.com/adriendelage/NSFW-blocker-script/main/nsfw-shield.user.js
 // @match        *://*/*
 // @run-at       document-start
 // @grant        GM_getValue
@@ -36,6 +39,36 @@
     'marcdorcel.com', 'tukif.com', 'xxxfrance.com', 'hdporn.fr',
   ];
 
+  // Réseaux sociaux bloqués (sous-domaines inclus)
+  const BLOCK_SOCIAL = true;
+  const SOCIAL_DOMAINS = [
+    // Meta
+    'facebook.com', 'fb.com', 'fb.watch', 'fb.me', 'messenger.com', 'instagram.com',
+    'threads.net', 'threads.com',
+    // X / Twitter
+    'x.com', 'twitter.com', 't.co', 'twimg.com',
+    // Vidéo courte / photo
+    'tiktok.com', 'tiktokv.com', 'snapchat.com', 'pinterest.com', 'pinterest.fr', 'pin.it',
+    'likee.video', 'triller.co', 'lemon8-app.com', 'bereal.com', 'vero.co', '9gag.com',
+    'ifunny.co', 'imgur.com',
+    // Forums / communautés
+    'reddit.com', 'redd.it', 'quora.com', 'tumblr.com', 'ask.fm', 'yubo.live',
+    'lemmy.world', 'kbin.social',
+    // Pro
+    'linkedin.com', 'lnkd.in',
+    // Décentralisés / alternatifs
+    'bsky.app', 'bsky.social', 'mastodon.social', 'mastodon.online', 'mstdn.social',
+    'truthsocial.com', 'gab.com', 'gettr.com', 'parler.com', 'minds.com', 'vk.com',
+    'ok.ru', 'weibo.com', 'douyin.com', 'xiaohongshu.com',
+  ];
+
+  // Plateformes vidéo / chat : désactivées par défaut (passe à true pour les bloquer aussi)
+  const BLOCK_VIDEO_CHAT = false;
+  const VIDEO_CHAT_DOMAINS = [
+    'youtube.com', 'youtu.be', 'twitch.tv', 'kick.com', 'discord.com', 'discord.gg',
+    'web.whatsapp.com', 'web.telegram.org',
+  ];
+
   // Extensions de domaine dédiées aux contenus adultes
   const BLOCKED_TLDS = ['xxx', 'porn', 'sex', 'adult', 'sexy'];
 
@@ -45,27 +78,59 @@
     'camgirl', 'sexcam', 'sextube', 'sexvid', 'milf', 'rule34', 'fapello', 'nudes',
   ];
 
-  // Termes de recherche bloqués (mots entiers, accents/leet-speak normalisés, pluriel en s toléré)
-  const QUERY_TERMS = [
-    'porn', 'porno', 'pornographie', 'pornographique', 'xxx', 'nsfw', 'hentai',
-    'nude', 'nudes', 'naked', 'sex', 'sexe', 'sexy', 'erotic', 'erotique', 'erotica',
-    'milf', 'onlyfans', 'fansly', 'camgirl', 'camgirls', 'boobs', 'tits', 'pussy',
-    'blowjob', 'cumshot', 'gangbang', 'bdsm', 'rule34', 'r34', 'xvideos', 'xnxx',
-    'xhamster', 'pornhub', 'redtube', 'youporn', 'chaturbate', 'stripchat', 'nhentai',
-    'nichons', 'branlette', 'baise', 'salope', 'cul nu', 'seins nus', 'leak onlyfans',
+  /*
+   * Termes de recherche — accents, casse et leet-speak normalisés.
+   *   'mot'   → mot entier, variantes s / x / e / es tolérées (sperme, sperms…)
+   *   'mot*'  → préfixe : tout mot qui commence par là (avaleuse, avaleuses…)
+   *   'a b'   → expression de plusieurs mots
+   *
+   * Règle de décision : 1 terme FORT  → bloqué
+   *                     2 termes FAIBLES → bloqués ensemble (ex. « sexe » + « nue »)
+   * Les termes faibles ont un sens légitime seuls (sperme, chatte, sein, queue…).
+   */
+  const STRONG_TERMS = [
+    // Génériques
+    'porn*', 'xxx', 'nsfw', 'hentai*', 'nudes', 'sextape*', 'sexcam*', 'bdsm', 'milf*',
+    'camgirl*', 'pussy', 'tits', 'boobs', 'dick pic*', 'dickpic*',
+    // Actes / argot (FR)
+    'avaleuse*', 'avaleur*', 'suceuse*', 'suceur*', 'fellation*', 'sodom*', 'cunnilingus',
+    'partouze*', 'partouse*', 'branlette*', 'branleuse*', 'nichon*', 'teub*', 'salope*',
+    'chaudasse*', 'plan cul', 'cul nu', 'seins nus', 'grosse bite', 'grosse queue',
+    'gros seins', 'gros nichons',
+    // Actes / argot (EN)
+    'bukkake*', 'creampie*', 'cumshot*', 'blowjob*', 'deepthroat*', 'handjob*', 'footjob*',
+    'gangbang*',
+    // Plateformes
+    'onlyfans*', 'fansly', 'leak onlyfans', 'mym leak*', 'rule34', 'r34', 'xvideo*', 'xnxx',
+    'xhamster*', 'pornhub', 'redtube', 'youporn', 'chaturbate', 'stripchat', 'nhentai',
+    'dorcel', 'tukif', 'jacquie et michel',
   ];
 
-  // Termes repérés même collés / espacés pour contourner (« p o r n h u b »)
+  const WEAK_TERMS = [
+    'sex', 'sexe', 'sexy', 'sexuel*', 'sperm*', 'ejacul*', 'orgasm*', 'masturb*', 'jouir',
+    'jouissance', 'bite', 'queue', 'chatte', 'cul', 'fesse*', 'sein', 'teton', 'nu', 'nue',
+    'nude', 'naked', 'topless', 'string', 'lingerie', 'anal', 'anus', 'gland', 'penis',
+    'vagin*', 'clito*', 'gode*', 'vibromasseur*', 'striptease*', 'escort*', 'pute*', 'putain',
+    'baise*', 'baiser', 'erotic*', 'erotique*', 'erotisme', 'coquin*', 'cochonne*', 'excit*',
+    'webcam*', 'cougar*',
+  ];
+
+  // Termes repérés même collés / espacés pour contourner (« p o r n h u b », « avale-use »)
   const SQUISHED_TERMS = [
     'pornhub', 'xvideos', 'xnxx', 'xhamster', 'youporn', 'redtube', 'onlyfans',
-    'rule34', 'nhentai', 'chaturbate', 'stripchat', 'hentai', 'nsfw',
+    'rule34', 'nhentai', 'chaturbate', 'stripchat', 'hentai', 'nsfw', 'avaleuse',
+    'suceuse', 'fellation', 'sodomie', 'partouze', 'bukkake', 'creampie', 'gangbang',
+    'blowjob', 'deepthroat', 'sextape',
   ];
 
   // Expressions légitimes neutralisées avant analyse (évite les faux positifs)
   const ALLOW_PHRASES = [
     'sexe du bebe', 'sexe bebe', 'sexe de mon bebe', 'education sexuelle', 'sex education',
     'sex pistols', 'sex and the city', 'changement de sexe', 'egalite des sexes',
-    'determination du sexe', 'sexe chromosomique',
+    'determination du sexe', 'sexe chromosomique', 'sante sexuelle', 'orientation sexuelle',
+    'harcelement sexuel', 'agression sexuelle', 'violence sexuelle', 'cancer du sein',
+    'cancer des seins', 'cul de sac', 'sodome et gomorrhe', 'avaleur de sabre',
+    'avaleurs de sabre', 'banque de sperme', 'don de sperme', 'sperm whale',
   ];
 
   // Paramètres d'URL contenant typiquement une recherche (sur n'importe quel site)
@@ -96,9 +161,18 @@
   }
 
   const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const TERMS_SRC = QUERY_TERMS.map((t) => escapeRe(normalize(t, false)).replace(/ /g, ' +')).join('|');
-  const TERM_RE = new RegExp(`(?:^| )(?:${TERMS_SRC})s?(?= |$)`);
-  const TERM_RE_GLOBAL = new RegExp(`(?:^| )(?:${TERMS_SRC})s?(?= |$)`, 'g');
+  function buildTermRe(list) {
+    const src = list.map((term) => {
+      const prefix = term.endsWith('*');
+      const word = escapeRe(normalize(prefix ? term.slice(0, -1) : term, false)).replace(/ /g, ' +');
+      return prefix ? `${word}[a-z0-9]*` : `${word}(?:s|x|e|es)?`;
+    }).join('|');
+    return new RegExp(`(?:^| )(?:${src})(?= |$)`, 'g');
+  }
+
+  const STRONG_RE = buildTermRe(STRONG_TERMS);
+  const WEAK_RE = buildTermRe(WEAK_TERMS);
+  const countMatches = (re, t) => (t.match(re) || []).length;
 
   function cleaned(raw, leet) {
     let t = ' ' + normalize(raw, leet) + ' ';
@@ -106,25 +180,23 @@
     return t.trim();
   }
 
-  function isNsfwText(raw) {
-    if (!raw) return false;
+  // Score : 2 points par terme fort, 1 par terme faible (meilleure variante leet / non-leet)
+  function nsfwScore(raw) {
+    if (!raw) return 0;
+    let best = 0;
     for (const leet of [false, true]) {
       const t = cleaned(raw, leet);
       if (!t) continue;
-      if (TERM_RE.test(t)) return true;
       const squished = t.replace(/ /g, '');
-      if (SQUISHED_TERMS.some((x) => squished.includes(x))) return true;
+      const strong = countMatches(STRONG_RE, t) +
+                     SQUISHED_TERMS.filter((x) => squished.includes(x)).length;
+      const weak = countMatches(WEAK_RE, t);
+      best = Math.max(best, strong * 2 + weak);
     }
-    return false;
+    return best;
   }
 
-  function nsfwScore(raw) {
-    if (!raw) return 0;
-    const t = cleaned(raw, false);
-    const hits = (t.match(TERM_RE_GLOBAL) || []).length;
-    const squished = t.replace(/ /g, '');
-    return hits + SQUISHED_TERMS.filter((x) => squished.includes(x)).length;
-  }
+  const isNsfwText = (raw) => nsfwScore(raw) >= 2;
 
   /* ===================================================================
    *  LISTE BLANCHE & STATS
@@ -156,7 +228,12 @@
 
     const host = u.hostname.toLowerCase();
     if (hostBlocked(host)) return 'Site pour adultes';
-    if (isWhitelisted(host.replace(/^www\./, ''))) return null;
+    const bareHost = host.replace(/^www\./, '');
+    if (isWhitelisted(bareHost)) return null;
+    if (BLOCK_SOCIAL && SOCIAL_DOMAINS.some((d) => matchesDomain(bareHost, d))) return 'Réseau social';
+    if (BLOCK_VIDEO_CHAT && VIDEO_CHAT_DOMAINS.some((d) => matchesDomain(bareHost, d))) {
+      return 'Plateforme vidéo / chat';
+    }
 
     // Reddit : porte NSFW et subreddits explicites
     if (/(^|\.)reddit\.com$/.test(host)) {
@@ -220,7 +297,7 @@
       }
     }
 
-    // Titre + description + mots-clés : au moins 2 occurrences explicites
+    // Titre + description + mots-clés : score ≥ 4 (ex. 2 termes forts, ou 1 fort + 2 faibles)
     const pick = (sel) => (document.querySelector(sel) || {}).content || '';
     const text = [
       document.title,
@@ -228,7 +305,7 @@
       pick('meta[name="keywords" i]'),
       pick('meta[property="og:title"]'),
     ].join(' ');
-    if (nsfwScore(text) >= 2) block('Contenu adulte détecté');
+    if (nsfwScore(text) >= 4) block('Contenu adulte détecté');
   }
 
   /* ===================================================================
